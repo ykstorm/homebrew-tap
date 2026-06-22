@@ -56,6 +56,52 @@ func TestHasReportsPresence(t *testing.T) {
 	}
 }
 
+func TestListAndDelete(t *testing.T) {
+	s, _ := New(t.TempDir())
+	ha, _ := s.Put([]byte("aaaa"))
+	hb, _ := s.Put([]byte("bb"))
+
+	entries, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries want 2", len(entries))
+	}
+	sizes := map[string]int64{}
+	for _, e := range entries {
+		sizes[e.Hash] = e.Size
+	}
+	if sizes[ha] != 4 || sizes[hb] != 2 {
+		t.Fatalf("sizes wrong: %v", sizes)
+	}
+
+	if err := s.Delete(ha); err != nil {
+		t.Fatal(err)
+	}
+	if s.Has(ha) {
+		t.Fatal("Delete did not remove blob")
+	}
+	entries, _ = s.List()
+	if len(entries) != 1 || entries[0].Hash != hb {
+		t.Fatalf("after delete entries=%v", entries)
+	}
+}
+
+func TestListSkipsTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := New(dir)
+	s.Put([]byte("real"))
+	// A leftover temp file (as from a crashed Put) must not appear.
+	if err := os.WriteFile(filepath.Join(dir, ".tmp-leftover"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := s.List()
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries want 1 (temp skipped)", len(entries))
+	}
+}
+
 func TestGetDetectsCorruption(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := New(dir)

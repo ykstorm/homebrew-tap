@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 var (
@@ -68,6 +70,46 @@ func (s *Store) Put(data []byte) (string, error) {
 		return "", err
 	}
 	return hash, nil
+}
+
+// Root returns the store's backing directory. Useful for tooling and tests.
+func (s *Store) Root() string { return s.root }
+
+// Entry describes a stored blob.
+type Entry struct {
+	Hash    string
+	Size    int64
+	ModTime time.Time
+}
+
+// List returns one Entry per stored blob. Temporary files from in-flight or
+// crashed Puts (".tmp-*") are skipped.
+func (s *Store) List() ([]Entry, error) {
+	des, err := os.ReadDir(s.root)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Entry, 0, len(des))
+	for _, de := range des {
+		if de.IsDir() || strings.HasPrefix(de.Name(), ".tmp") {
+			continue
+		}
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, Entry{Hash: de.Name(), Size: info.Size(), ModTime: info.ModTime()})
+	}
+	return out, nil
+}
+
+// Delete removes a blob. Removing an absent blob is not an error.
+func (s *Store) Delete(hash string) error {
+	err := os.Remove(s.path(hash))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // Get returns the blob for hash, verifying its integrity. It returns
