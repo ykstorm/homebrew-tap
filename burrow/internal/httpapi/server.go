@@ -17,6 +17,15 @@ func NewServer(n *node.Node) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mux.HandleFunc("GET /chunk/{hash}", func(w http.ResponseWriter, r *http.Request) {
+		data, err := n.GetChunk(r.PathValue("hash"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(data)
+	})
 	mux.HandleFunc("GET /artifact/{name}/{version}", func(w http.ResponseWriter, r *http.Request) {
 		tag := r.PathValue("name") + "@" + r.PathValue("version")
 		data, err := n.Artifact(tag)

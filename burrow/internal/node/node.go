@@ -36,16 +36,54 @@ type Index interface {
 	ManifestStore
 }
 
+// ChunkFetcher pulls a chunk by hash from somewhere else (peers). Implemented
+// by peer.Fetcher. Optional: a nil fetcher means "local only".
+type ChunkFetcher interface {
+	Fetch(hash string) ([]byte, bool)
+}
+
+// ErrChunkUnavailable means a manifest chunk was not in the local store and
+// could not be fetched from any peer.
+var ErrChunkUnavailable = errors.New("node: chunk unavailable from local store or peers")
+
 // Node ties the store, index, and origin into a read-through cache.
 type Node struct {
 	store *cas.Store
 	idx   Index
 	orig  origin.Origin
+	peers ChunkFetcher // optional
 }
 
 // New constructs a Node.
 func New(store *cas.Store, idx Index, orig origin.Origin) *Node {
 	return &Node{store: store, idx: idx, orig: orig}
+}
+
+// SetPeers attaches a peer chunk fetcher used to fill cache misses.
+func (n *Node) SetPeers(f ChunkFetcher) { n.peers = f }
+
+// GetChunk returns a locally-stored chunk (verified by the CAS). Used by the
+// HTTP /chunk endpoint so this node can serve peers.
+func (n *Node) GetChunk(hash string) ([]byte, error) { return n.store.Get(hash) }
+
+// ensureChunks guarantees every chunk in m is present locally, pulling missing
+// ones from peers and populating the local store (read-through fill).
+func (n *Node) ensureChunks(m *manifest.Manifest) error {
+	for _, h := range m.Chunks {
+		if n.store.Has(h) {
+			continue
+		}
+		if n.peers != nil {
+			if data, ok := n.peers.Fetch(h); ok {
+				if _, err := n.store.Put(data); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		return ErrChunkUnavailable
+	}
+	return nil
 }
 
 func splitTag(tag string) (name, version string, ok bool) {
@@ -93,6 +131,9 @@ func (n *Node) Artifact(tag string) ([]byte, error) {
 	}
 	m, err := n.idx.Manifest(h)
 	if err != nil {
+		return nil, err
+	}
+	if err := n.ensureChunks(m); err != nil {
 		return nil, err
 	}
 	return assemble.Reassemble(m, n.store)
