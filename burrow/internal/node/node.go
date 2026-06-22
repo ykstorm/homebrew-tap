@@ -8,22 +8,43 @@ import (
 
 	"burrow/internal/assemble"
 	"burrow/internal/cas"
-	"burrow/internal/index"
+	"burrow/internal/manifest"
 	"burrow/internal/origin"
 )
 
 // ErrBadTag means the tag was not in "name@version" form.
 var ErrBadTag = errors.New("node: tag must be name@version")
 
+// TagStore is the strongly-consistent tag → manifest-hash mapping. In a single
+// node this is the JSON index; in a cluster it is raftindex.
+type TagStore interface {
+	Resolve(tag string) (string, bool)
+	SetTag(tag, manifestHash string) error
+}
+
+// ManifestStore persists and retrieves manifests (content-addressed, so no
+// consensus is needed on them).
+type ManifestStore interface {
+	PutManifest(*manifest.Manifest) (string, error)
+	Manifest(hash string) (*manifest.Manifest, error)
+}
+
+// Index combines both backends. *index.Index satisfies it directly; so does a
+// pairing of a raftindex.Store (tags) with an index.Index (manifests).
+type Index interface {
+	TagStore
+	ManifestStore
+}
+
 // Node ties the store, index, and origin into a read-through cache.
 type Node struct {
 	store *cas.Store
-	idx   *index.Index
+	idx   Index
 	orig  origin.Origin
 }
 
 // New constructs a Node.
-func New(store *cas.Store, idx *index.Index, orig origin.Origin) *Node {
+func New(store *cas.Store, idx Index, orig origin.Origin) *Node {
 	return &Node{store: store, idx: idx, orig: orig}
 }
 
