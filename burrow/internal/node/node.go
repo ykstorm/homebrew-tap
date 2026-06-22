@@ -115,6 +115,28 @@ func (n *Node) Ingest(name, version string) (string, error) {
 	return h, nil
 }
 
+// Prefetch warms the local cache for a tag without serving bytes: it resolves
+// the manifest (ingesting from origin if the tag is unknown) and ensures every
+// chunk is present locally (filling from peers on a miss). Cheaper than
+// Artifact because it skips reassembly.
+func (n *Node) Prefetch(tag string) error {
+	name, version, ok := splitTag(tag)
+	if !ok {
+		return ErrBadTag
+	}
+	h, ok := n.idx.Resolve(tag)
+	if !ok {
+		// Unknown tag: ingest from origin (this already stores all chunks).
+		_, err := n.Ingest(name, version)
+		return err
+	}
+	m, err := n.idx.Manifest(h)
+	if err != nil {
+		return err
+	}
+	return n.ensureChunks(m)
+}
+
 // Artifact returns the original bytes for a tag, ingesting from the origin on a
 // cache miss. Reassembly verifies every chunk and the total size.
 func (n *Node) Artifact(tag string) ([]byte, error) {

@@ -45,6 +45,34 @@ func TestArtifactReadThroughThenCached(t *testing.T) {
 	}
 }
 
+func TestPrefetchFillsChunksWithoutServing(t *testing.T) {
+	od := t.TempDir()
+	want := bytes.Repeat([]byte("P"), 1500)
+	os.WriteFile(filepath.Join(od, "sbx-0.33.0.tar.gz"), want, 0o644)
+	n := newNode(t, od)
+
+	if err := n.Prefetch("sbx@0.33.0"); err != nil {
+		t.Fatalf("Prefetch: %v", err)
+	}
+	// Tag now resolves and a subsequent Artifact serves from cache even if the
+	// origin disappears -- proving Prefetch warmed the store.
+	os.Remove(filepath.Join(od, "sbx-0.33.0.tar.gz"))
+	got, err := n.Artifact("sbx@0.33.0")
+	if err != nil {
+		t.Fatalf("Artifact after prefetch: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("served bytes != original")
+	}
+}
+
+func TestPrefetchBadTag(t *testing.T) {
+	n := newNode(t, t.TempDir())
+	if err := n.Prefetch("no-at"); err != ErrBadTag {
+		t.Fatalf("got %v want ErrBadTag", err)
+	}
+}
+
 func TestArtifactBadTag(t *testing.T) {
 	n := newNode(t, t.TempDir())
 	if _, err := n.Artifact("no-at-sign"); err != ErrBadTag {
