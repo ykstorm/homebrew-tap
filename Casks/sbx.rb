@@ -7,6 +7,11 @@ cask "sbx" do
   desc "Build, run, and govern agents across the software development lifecycle"
   homepage "https://github.com/docker/sbx-releases"
 
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
   conflicts_with cask: "docker/tap/sbx@nightly"
   depends_on arch:  :arm64,
              macos: :sonoma
